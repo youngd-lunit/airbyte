@@ -75,6 +75,8 @@ Repositories with the wrong name or repositories that do not exist or have the w
 9. **API URL (Optional)** - If you use a self-hosted GitHub instance, enter its API URL, for example `https://github.company.org`. Leave empty to use `https://api.github.com/`.
 10. **Max Waiting Time (Optional)** - Maximum time in minutes to wait when the connector is rate-limited by the GitHub API. Defaults to 10 minutes. Valid range: 1 to 60 minutes.
 
+9. **Max Waiting Time (in minutes) (Optional)** - Maximum time the connector waits when every configured API token is rate-limited before it fails the sync. The default is 120 minutes, which covers GitHub's 60-minute rate limit reset window plus margin. You can set any value between 1 and 240 minutes. If you provide multiple personal access tokens, the connector rotates through them first, and only waits after every token is exhausted.
+
 ### For Airbyte Open Source:
 
 1. Navigate to the Airbyte Open Source dashboard.
@@ -201,7 +203,10 @@ In the event that limits are reached before all streams have been read, it is re
 1. Utilize Incremental sync mode.
 2. Set a higher sync interval.
 3. Divide the sync into separate connections with a smaller number of streams.
+4. Provide multiple personal access tokens in the **Personal Access Tokens** field, separated by commas. The connector rotates through all tokens and only waits once every token's rate limit is exhausted.
    :::
+
+When every configured token is rate-limited, the connector waits for the limit to reset rather than failing immediately. The wait is capped by the **Max Waiting Time (in minutes)** configuration option (default: 120 minutes, maximum: 240 minutes). Rate-limit exhaustion is classified as a transient error, so Airbyte will retry the sync according to your connection's retry behavior if the connector does exceed this wait.
 
 Refer to GitHub article [Rate limits for the REST API](https://docs.github.com/en/rest/overview/rate-limits-for-the-rest-api).
 
