@@ -238,6 +238,8 @@ If your agent fails to retrieve GitHub data, check the following:
 - **HTTP 401/403 errors from GitHub**: The GitHub token or OAuth credentials stored in your connector are invalid or missing required scopes. Open your GitHub connector in the web app and reauthenticate with a valid token that has `repo` scope.
 - **Empty `data=[]` responses from filtered queries**: Most GitHub filters use case-sensitive values. Confirm the agent is sending uppercase values (for example, `states=["OPEN"]` rather than `states=["open"]`). The tool description's rules nudge the model to do that by default; you can also reinforce the rules in your client's system prompt.
 
+See the [Github agent connector page](https://docs.airbyte.com/ai-agents/connectors/github/) for more details.
+
 ## Summary
 
 In this tutorial, you learned how to:
