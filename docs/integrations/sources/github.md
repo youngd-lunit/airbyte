@@ -237,6 +237,7 @@ Your token should have at least the `repo` scope. Depending on which streams you
 
 | Version    | Date       | Pull Request                                                                                                      | Subject                                                                                                                                                                |
 |:-----------|:-----------|:------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2.1.26 | 2026-05-02 | [77681](https://github.com/airbytehq/airbyte/pull/77681) | Treat 410 "Issues/Projects disabled" responses as skip-the-slice instead of failing the stream |
 | 2.1.25 | 2026-05-01 | [77690](https://github.com/airbytehq/airbyte/pull/77690) | Replaced placeholder and raw-passthrough error messages with actionable text including HTTP status codes, affected resources, and likely causes |
 | 2.1.24 | 2026-04-28 | [77238](https://github.com/airbytehq/airbyte/pull/77238) | Update dependencies |
 | 2.1.23 | 2026-04-22 | [76922](https://github.com/airbytehq/airbyte/pull/76922) | Handle `None` response in `read_records` error handler so transport-layer failures (connection errors, timeouts) surface as transient errors instead of `AttributeError` |

@@ -41,9 +41,13 @@ GITHUB_DEFAULT_ERROR_MAPPING = DEFAULT_ERROR_MAPPING | {
         error_message="Conflict.",
     ),
     410: ErrorResolution(
-        response_action=ResponseAction.RETRY,
+        response_action=ResponseAction.FAIL,
         failure_type=FailureType.config_error,
-        error_message="Gone. Please ensure the url is valid.",
+        error_message=(
+            "GitHub returned 410 Gone for an unexpected reason. "
+            "The endpoint or API version may be deprecated. "
+            "Verify the connector version is current and the endpoint is still supported."
+        ),
     ),
 }
 
@@ -52,6 +56,16 @@ def is_conflict_with_empty_repository(response_or_exception: Optional[Union[requ
     if isinstance(response_or_exception, requests.Response) and response_or_exception.status_code == requests.codes.CONFLICT:
         response_data = response_or_exception.json()
         return response_data.get("message") == "Git Repository is empty."
+    return False
+
+
+def is_gone_with_feature_disabled(response_or_exception: Optional[Union[requests.Response, Exception]] = None) -> bool:
+    if isinstance(response_or_exception, requests.Response) and response_or_exception.status_code == requests.codes.GONE:
+        try:
+            message = (response_or_exception.json().get("message") or "").lower()
+        except ValueError:
+            return False
+        return "are disabled" in message or "is disabled" in message
     return False
 
 
@@ -109,6 +123,14 @@ class GithubStreamABCErrorHandler(HttpStatusErrorHandler):
                     f"Skipping `{self.stream.name}` for this repository: GitHub returned 409 Conflict "
                     f"with message 'Git Repository is empty.' This means the repository has no commits."
                 )
+                return ErrorResolution(
+                    response_action=ResponseAction.IGNORE,
+                    failure_type=FailureType.config_error,
+                    error_message=log_message,
+                )
+
+            if is_gone_with_feature_disabled(response_or_exception=response_or_exception):
+                log_message = f"Skipping stream slice for '{response_or_exception.url}': {response_or_exception.json().get('message', 'Feature disabled')}."
                 return ErrorResolution(
                     response_action=ResponseAction.IGNORE,
                     failure_type=FailureType.config_error,

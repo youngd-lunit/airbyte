@@ -34,6 +34,7 @@ from .errors_handlers import (
     GitHubGraphQLErrorHandler,
     GithubStreamABCErrorHandler,
     is_conflict_with_empty_repository,
+    is_gone_with_feature_disabled,
 )
 from .graphql import (
     CursorStorage,
@@ -187,13 +188,7 @@ class GithubStreamABC(HttpStream, ABC):
                         f"Your Personal Access Token may need to be renewed. GitHub message: {api_message!r}"
                     )
                 raise e
-            elif e._exception.response.status_code == requests.codes.GONE and isinstance(self, Projects):
-                # Some repos don't have projects enabled and we get "410 Client Error: Gone for
-                # url: https://api.github.com/repos/xyz/projects?per_page=100" error.
-                error_msg = (
-                    f"GitHub Projects (classic) is disabled for repository `{stream_slice['repository']}`. "
-                    f"Skipping the `Projects` stream for this repository."
-                )
+
             elif e._exception.response.status_code == requests.codes.CONFLICT:
                 error_msg = (
                     f"Skipping `{self.name}` for repository `{stream_slice['repository']}`: "
@@ -263,9 +258,8 @@ class GithubStream(GithubStreamABC):
         stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> Iterable[Mapping]:
-        if is_conflict_with_empty_repository(response):
-            # I would expect that this should be handled (skipped) by the error handler, but it seems like
-            # ignored this error but continue to processing records. This may be fixed in latest CDK versions.
+        if is_conflict_with_empty_repository(response) or is_gone_with_feature_disabled(response):
+            # The CDK IGNORE action still calls parse_response; guard against non-array error bodies.
             return
         yield from super().parse_response(
             response=response,
