@@ -145,9 +145,35 @@ class GcsDataLakeStreamLoader(
             // (it will set identifier fields after schema evolution in
             // computeOrExecuteSchemaUpdate)
             if (table.history().isEmpty() || table.schema().identifierFieldIds().isEmpty()) {
-                table.updateSchema().setIdentifierFields(primaryKeyNames).commit()
-                // Refresh to get the updated schema with identifier fields
-                table.refresh()
+                // Iceberg requires identifier (primary key) fields to be `required`
+                // (non-null). A freshly created table already has its PK columns as
+                // required, but a table that already exists - created by an older
+                // connector version, switched from append to dedup, or left in a partial
+                // state by a previously failed sync - may have these columns as optional.
+                // Calling setIdentifierFields() on an optional column fails with
+                // "Cannot add field <pk> as an identifier field: not a required field".
+                // So we must promote the PK columns to required in the same schema update.
+                // allowIncompatibleChanges() is required because optional -> required is an
+                // incompatible schema change.
+                //
+                // We only reconcile here when every PK column already exists on the table.
+                // If a PK column is still missing (e.g. a partially-created table that only
+                // has Airbyte metadata columns), we defer to the IcebergTableSynchronizer
+                // below, which adds the missing columns and sets the identifier fields as
+                // part of normal schema evolution.
+                val pkColumnsExist = primaryKeyNames.all { table.schema().findField(it) != null }
+                if (pkColumnsExist) {
+                    val updateSchema = table.updateSchema().allowIncompatibleChanges()
+                    primaryKeyNames.forEach { updateSchema.requireColumn(it) }
+                    updateSchema.setIdentifierFields(primaryKeyNames).commit()
+                    // Refresh to get the updated schema with identifier fields
+                    table.refresh()
+                } else {
+                    logger.info {
+                        "Not all primary key columns ($primaryKeyNames) exist on the table yet. " +
+                            "Deferring identifier field setup to the schema synchronizer."
+                    }
+                }
             } else {
                 logger.info {
                     "Table already has identifier fields. Will let schema synchronizer handle PK changes."
