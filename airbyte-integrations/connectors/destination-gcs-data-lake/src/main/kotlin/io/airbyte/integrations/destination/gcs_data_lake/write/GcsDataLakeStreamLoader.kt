@@ -227,7 +227,31 @@ class GcsDataLakeStreamLoader(
     }
 
     override suspend fun teardown(completedSuccessfully: Boolean) {
-        if (completedSuccessfully) {
+        // `teardown` is only reached after the data pipeline has finished without throwing
+        // (DestinationLifecycle.run() only calls finalizeIndividualStreams once pipeline.run()
+        // returns successfully). `completedSuccessfully` additionally requires that a
+        // stream-complete (STREAM_STATUS COMPLETE) signal was received and tracked for every
+        // stream in the catalog.
+        //
+        // In some environments those stream-status messages are dropped in transit between the
+        // orchestrator and the destination (e.g. a broken pipe at end-of-sync). When that happens
+        // the data is fully written to the staging branch, but `completedSuccessfully` is a false
+        // negative, so the staging branch is never promoted to main and the data is invisible to
+        // query engines (which read `main`). `forceMainBranchPromotion` lets operators opt into
+        // promoting on successful pipeline completion regardless of the completion tracker.
+        // Trade-off: if a source genuinely truncates mid-sync, a full-refresh could publish partial
+        // data, so this is opt-in and defaults to false.
+        val shouldPromoteToMain =
+            completedSuccessfully || icebergConfiguration.forceMainBranchPromotion
+        if (shouldPromoteToMain) {
+            if (!completedSuccessfully) {
+                logger.warn {
+                    "Stream completion tracking was incomplete (not all stream-complete signals were " +
+                        "received), but force_main_branch_promotion is enabled. Promoting staging branch " +
+                        "'$stagingBranchName' to main branch '$mainBranchName' for stream ${stream.mappedDescriptor} " +
+                        "based on successful pipeline completion."
+                }
+            }
             // Doing it first to make sure that data coming in the current batch is written to the
             // main branch
             logger.info {

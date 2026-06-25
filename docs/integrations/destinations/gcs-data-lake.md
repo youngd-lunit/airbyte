@@ -221,6 +221,7 @@ This destination supports [namespaces](https://docs.airbyte.com/platform/using-a
 
 | Version | Date       | Pull Request                                                 | Subject                                                                               |
 |:--------|:-----------|:-------------------------------------------------------------|:--------------------------------------------------------------------------------------|
+| 1.0.12  | 2026-06-26 |                                                              | Add `force_main_branch_promotion` option to commit the staging branch to main on successful pipeline completion when stream-complete signals are dropped in transit (data stuck in `airbyte_staging`, never visible on `main`) |
 | 1.0.11  | 2026-06-26 |                                                              | Fix dedup failure ("Cannot add field id as an identifier field: not a required field") on existing/partially-created tables by promoting PK columns to required before setting identifier fields |
 | 1.0.10  | 2026-05-19 | [78235](https://github.com/airbytehq/airbyte/pull/78235)     | Upgrade CDK to 1.0.13 |
 | 1.0.9   | 2026-04-16 | [76406](https://github.com/airbytehq/airbyte/pull/76406)     | Upgrade CDK to 1.0.9.                                                                 |
