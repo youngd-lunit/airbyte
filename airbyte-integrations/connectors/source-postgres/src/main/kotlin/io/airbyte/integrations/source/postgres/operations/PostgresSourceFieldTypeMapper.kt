@@ -20,6 +20,7 @@ import io.airbyte.integrations.source.postgres.operations.types.AnyFieldType
 import io.airbyte.integrations.source.postgres.operations.types.HstoreFieldType
 import io.airbyte.integrations.source.postgres.operations.types.LegacyBooleanBitsFieldType
 import io.airbyte.integrations.source.postgres.operations.types.PostgresByteaFieldType
+import io.airbyte.integrations.source.postgres.operations.types.PostgresByteaHexFieldType
 import io.airbyte.integrations.source.postgres.operations.types.PostgresDateFieldType
 import io.airbyte.integrations.source.postgres.operations.types.PostgresDoubleFieldType
 import io.airbyte.integrations.source.postgres.operations.types.PostgresFloatFieldType
@@ -52,7 +53,8 @@ class PostgresSourceFieldTypeMapper : JdbcMetadataQuerier.FieldTypeMapper {
         // TODO (https://github.com/airbytehq/airbyte-internal-issues/issues/15946):
         //  Remove this - preserves legacy mapping of "_oid" array inconsistent with "oid" scalar
         if (type.isArray && type.scalarTypeName == "oid") return BigDecimalFieldType
-        // _bytea arrays use base64 encoding; scalar bytea uses hex string (legacy inconsistency)
+        // _bytea arrays still use base64 (separate, tracked inconsistency); scalar bytea uses
+        // plain hex, equivalent to encode(col, 'hex')
         if (type.isArray && type.scalarTypeName == "bytea") return PostgresByteaFieldType
         return when (type.scalarJdbcType) {
             JDBCType.BIT ->
@@ -103,7 +105,8 @@ class PostgresSourceFieldTypeMapper : JdbcMetadataQuerier.FieldTypeMapper {
             JDBCType.VARCHAR -> StringFieldType
             JDBCType.BINARY,
             JDBCType.VARBINARY ->
-                if (type.scalarTypeName == "bytea") StringFieldType else BinaryStreamFieldType
+                if (type.scalarTypeName == "bytea") PostgresByteaHexFieldType
+                else BinaryStreamFieldType
             JDBCType.NULL -> NullFieldType
             JDBCType.OTHER ->
                 when (type.scalarTypeName) {
