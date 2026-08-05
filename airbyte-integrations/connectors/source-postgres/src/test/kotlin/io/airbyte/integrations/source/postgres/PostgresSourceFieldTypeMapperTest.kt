@@ -132,6 +132,24 @@ class PostgresSourceFieldTypeMapperTest : FieldTypeMapperTest() {
             arrayIsNulled = true,
             baseTestName = "DOUBLE PRECISION UNSUPPORTED VALS",
         )
+        // Postgres collapses declared array dimensionality into a single catalog type, so
+        // "double precision[]" and "double precision[][]" are indistinguishable from typeName
+        // alone. This verifies genuinely 2-D data round-trips as a nested array instead of being
+        // flattened/nulled.
+        add(
+            testCase(
+                "DOUBLE PRECISION[][]",
+                ArrayAirbyteSchemaType(ArrayAirbyteSchemaType(LeafAirbyteSchemaType.NUMBER)),
+                mapOf(
+                    "null" to "null",
+                    "ARRAY[ARRAY[1.0,2.0],ARRAY[3.0,4.0]]::double precision[]" to
+                        "[[1.0,2.0],[3.0,4.0]]",
+                    "ARRAY[ARRAY[1.0],ARRAY[2.0],ARRAY[3.0]]::double precision[]" to
+                        "[[1.0],[2.0],[3.0]]",
+                ),
+                "DOUBLE PRECISION 2D ARRAY"
+            )
+        )
 
         // Character types
         scalarAndArray("TEXT", LeafAirbyteSchemaType.STRING, AnsiSql.charValues)
@@ -223,7 +241,7 @@ class PostgresSourceFieldTypeMapperTest : FieldTypeMapperTest() {
             testCase(
                 "BYTEA",
                 LeafAirbyteSchemaType.STRING,
-                mapOf("decode('someBase64xx', 'base64')" to "\"\\\\xb2899e05ab1eeb8c71\""),
+                mapOf("decode('someBase64xx', 'base64')" to "\"b2899e05ab1eeb8c71\""),
                 "BYTEA",
             )
         )

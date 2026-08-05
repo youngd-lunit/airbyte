@@ -5,12 +5,17 @@
 package io.airbyte.integrations.source.postgres
 
 import io.airbyte.cdk.ConfigErrorException
+import io.airbyte.cdk.StreamIdentifier
 import io.airbyte.cdk.check.JdbcCheckQueries
 import io.airbyte.cdk.command.FeatureFlag
+import io.airbyte.cdk.discover.EmittedField
 import io.airbyte.cdk.discover.JdbcMetadataQuerier
 import io.airbyte.cdk.discover.MetadataQuerier
+import io.airbyte.cdk.discover.TableName
+import io.airbyte.cdk.jdbc.ArrayFieldType
 import io.airbyte.cdk.jdbc.DefaultJdbcConstants
 import io.airbyte.cdk.jdbc.JdbcConnectionFactory
+import io.airbyte.cdk.jdbc.JdbcFieldType
 import io.airbyte.cdk.read.SelectQueryGenerator
 import io.airbyte.cdk.ssh.SshNoTunnelMethod
 import io.airbyte.integrations.source.postgres.config.PostgresSourceConfiguration
@@ -35,6 +40,56 @@ class PostgresSourceMetadataQuerier(
                 if (dbNumWraparound(conn) > 0) {
                     throw ConfigErrorException(xminWraparoundError)
                 }
+            }
+        }
+    }
+
+    /**
+     * Postgres collapses `T[]` and `T[][]` (and deeper) into the same catalog type, so the
+     * generic [JdbcMetadataQuerier] always reports array columns as a single level of nesting.
+     * Here we consult `pg_attribute.attndims` - the one place Postgres records the *declared*
+     * dimensionality - and re-wrap the field's [ArrayFieldType] to match, so that genuinely
+     * multi-dimensional array columns (e.g. `double precision[][]`) round-trip correctly instead
+     * of being flattened and subsequently nulled out downstream.
+     *
+     * Note: `attndims` is a hint, not an enforced constraint - Postgres permits storing arrays of
+     * a different depth than declared. This only corrects the common case where the stored data
+     * matches the declared shape.
+     */
+    override fun fields(streamID: StreamIdentifier): List<EmittedField> {
+        val emittedFields = base.fields(streamID)
+        val table = base.findTableName(streamID) ?: return emittedFields
+        val attndimsByColumn = fetchAttndims(table)
+
+        return emittedFields.map { field ->
+            val dims = attndimsByColumn[field.id] ?: return@map field
+            if (dims <= 1) return@map field
+            val type = field.type
+            if (type !is ArrayFieldType<*>) return@map field
+            var nested: JdbcFieldType<*> = type
+            repeat(dims - 1) { nested = ArrayFieldType(nested) }
+            field.copy(type = nested)
+        }
+    }
+
+    private fun fetchAttndims(table: TableName): Map<String, Int> {
+        val query =
+            """
+            SELECT a.attname, a.attndims
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+            JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
+            WHERE n.nspname = ? AND c.relname = ? AND a.attnum > 0 AND NOT a.attisdropped
+            """.trimIndent()
+        base.conn.prepareStatement(query).use { stmt ->
+            stmt.setString(1, table.schema)
+            stmt.setString(2, table.name)
+            stmt.executeQuery().use { rs ->
+                val result = mutableMapOf<String, Int>()
+                while (rs.next()) {
+                    result[rs.getString("attname")] = rs.getInt("attndims")
+                }
+                return result
             }
         }
     }

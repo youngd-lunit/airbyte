@@ -192,13 +192,9 @@ class PostgresCustomConverter : CustomConverter<SchemaBuilder?, RelationalColumn
                 if (x == null) {
                     val defaultValue: Any? = convertDefaultValue(field)
                     return@Converter if (defaultValue == null) null
-                    else
-                        "\\x" +
-                            encodeHexString(
-                                defaultValue as ByteArray,
-                            )
+                    else encodeHexString(defaultValue as ByteArray)
                 }
-                "\\x" + encodeHexString(x as ByteArray)
+                encodeHexString(x as ByteArray)
             },
         )
     }

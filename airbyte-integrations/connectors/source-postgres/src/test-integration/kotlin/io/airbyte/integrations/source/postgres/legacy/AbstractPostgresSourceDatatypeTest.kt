@@ -104,7 +104,7 @@ abstract class AbstractPostgresSourceDatatypeTest : AbstractSourceDatabaseTypeTe
                 .sourceType("bytea")
                 .airbyteType(JsonSchemaType.STRING)
                 .addInsertValues("null", "decode('1234', 'hex')", "'1234'", "'abcd'", "'\\xabcd'")
-                .addExpectedValues(null, "\\x1234", "\\x31323334", "\\x61626364", "\\xabcd")
+                .addExpectedValues(null, "1234", "31323334", "61626364", "abcd")
                 .build(),
         )
 
