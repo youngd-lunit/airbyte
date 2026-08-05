@@ -145,9 +145,35 @@ class GcsDataLakeStreamLoader(
             // (it will set identifier fields after schema evolution in
             // computeOrExecuteSchemaUpdate)
             if (table.history().isEmpty() || table.schema().identifierFieldIds().isEmpty()) {
-                table.updateSchema().setIdentifierFields(primaryKeyNames).commit()
-                // Refresh to get the updated schema with identifier fields
-                table.refresh()
+                // Iceberg requires identifier (primary key) fields to be `required`
+                // (non-null). A freshly created table already has its PK columns as
+                // required, but a table that already exists - created by an older
+                // connector version, switched from append to dedup, or left in a partial
+                // state by a previously failed sync - may have these columns as optional.
+                // Calling setIdentifierFields() on an optional column fails with
+                // "Cannot add field <pk> as an identifier field: not a required field".
+                // So we must promote the PK columns to required in the same schema update.
+                // allowIncompatibleChanges() is required because optional -> required is an
+                // incompatible schema change.
+                //
+                // We only reconcile here when every PK column already exists on the table.
+                // If a PK column is still missing (e.g. a partially-created table that only
+                // has Airbyte metadata columns), we defer to the IcebergTableSynchronizer
+                // below, which adds the missing columns and sets the identifier fields as
+                // part of normal schema evolution.
+                val pkColumnsExist = primaryKeyNames.all { table.schema().findField(it) != null }
+                if (pkColumnsExist) {
+                    val updateSchema = table.updateSchema().allowIncompatibleChanges()
+                    primaryKeyNames.forEach { updateSchema.requireColumn(it) }
+                    updateSchema.setIdentifierFields(primaryKeyNames).commit()
+                    // Refresh to get the updated schema with identifier fields
+                    table.refresh()
+                } else {
+                    logger.info {
+                        "Not all primary key columns ($primaryKeyNames) exist on the table yet. " +
+                            "Deferring identifier field setup to the schema synchronizer."
+                    }
+                }
             } else {
                 logger.info {
                     "Table already has identifier fields. Will let schema synchronizer handle PK changes."
@@ -201,7 +227,31 @@ class GcsDataLakeStreamLoader(
     }
 
     override suspend fun teardown(completedSuccessfully: Boolean) {
-        if (completedSuccessfully) {
+        // `teardown` is only reached after the data pipeline has finished without throwing
+        // (DestinationLifecycle.run() only calls finalizeIndividualStreams once pipeline.run()
+        // returns successfully). `completedSuccessfully` additionally requires that a
+        // stream-complete (STREAM_STATUS COMPLETE) signal was received and tracked for every
+        // stream in the catalog.
+        //
+        // In some environments those stream-status messages are dropped in transit between the
+        // orchestrator and the destination (e.g. a broken pipe at end-of-sync). When that happens
+        // the data is fully written to the staging branch, but `completedSuccessfully` is a false
+        // negative, so the staging branch is never promoted to main and the data is invisible to
+        // query engines (which read `main`). `forceMainBranchPromotion` lets operators opt into
+        // promoting on successful pipeline completion regardless of the completion tracker.
+        // Trade-off: if a source genuinely truncates mid-sync, a full-refresh could publish partial
+        // data, so this is opt-in and defaults to false.
+        val shouldPromoteToMain =
+            completedSuccessfully || icebergConfiguration.forceMainBranchPromotion
+        if (shouldPromoteToMain) {
+            if (!completedSuccessfully) {
+                logger.warn {
+                    "Stream completion tracking was incomplete (not all stream-complete signals were " +
+                        "received), but force_main_branch_promotion is enabled. Promoting staging branch " +
+                        "'$stagingBranchName' to main branch '$mainBranchName' for stream ${stream.mappedDescriptor} " +
+                        "based on successful pipeline completion."
+                }
+            }
             // Doing it first to make sure that data coming in the current batch is written to the
             // main branch
             logger.info {

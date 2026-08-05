@@ -115,6 +115,14 @@ class GcsDataLakeSpecification : ConfigurationSpecification() {
     @get:JsonSchemaInject(json = """{"order": 8}""")
     val gcsEndpoint: String? = null
 
+    @get:JsonSchemaTitle("Force Main Branch Promotion")
+    @get:JsonPropertyDescription(
+        """If enabled, the staging branch is promoted to the main branch whenever the destination pipeline finishes successfully, even if the platform did not deliver a stream-complete signal for every stream. Enable this only if your environment drops stream-status messages between the orchestrator and the destination (symptom: data lands in the `airbyte_staging` branch but never appears on `main`/in your query engine). Trade-off: if a source truncates mid-sync, a full-refresh could publish partial data, so leave this off unless you are hitting the staging-not-promoted issue."""
+    )
+    @get:JsonProperty("force_main_branch_promotion")
+    @get:JsonSchemaInject(json = """{"default": false, "order": 9}""")
+    val forceMainBranchPromotion: Boolean = false
+
     fun toGcsCatalogConfiguration(): GcsCatalogConfiguration {
         val catalogConfig =
             when (catalogType) {
